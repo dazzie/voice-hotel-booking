@@ -36,7 +36,7 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from toolbox_core import ToolboxSyncClient
 
-from memory import search_memory
+from memory import search_memory, save_memory
 from prompts import SQL_PROMPT_INSTRUCTION
 from greet import authenticate_user
 from cs_agent.security.sanitizer import sanitize_input
@@ -61,6 +61,15 @@ database_tools = toolbox_client.load_toolset("cs_agent_tools")
 
 session_service = InMemorySessionService()
 _runners: dict[str, Runner] = {}   # user_id -> Runner
+_transcripts: dict[str, list] = {}  # user_id -> running [{role, content}] for this session,
+                                    # flushed to Mem0 on logout (mirrors the CLI's save-on-quit)
+
+
+def _record(user_id: str, role: str, content: str) -> None:
+    """Append one message to this user's session transcript (persisted on logout)."""
+    if user_id and content:
+        _transcripts.setdefault(user_id, []).append({"role": role, "content": content})
+
 
 app = FastAPI(title="Customer Support Agent")
 
@@ -117,6 +126,7 @@ async def login(req: LoginReq):
         return JSONResponse({"ok": False, "error": "Invalid email or password."}, status_code=401)
     uid = ctx["email"]
     _runners[uid] = _build_runner(uid)
+    _transcripts[uid] = []            # fresh session transcript (drop any stale unsaved buffer)
     sid = f"session_{uid}"
     # Make login idempotent — a repeat login (or page reload) must not 500 on a
     # session id that already exists. Recreate it fresh.
@@ -137,6 +147,15 @@ async def login(req: LoginReq):
 @app.post("/api/logout")
 async def logout(req: LogoutReq):
     _runners.pop(req.user_id, None)
+    # Persist this session's conversation to Mem0 — the web equivalent of the CLI's
+    # save_memory(...) on `quit`. Fired by the Sign-out button AND by the browser tab
+    # closing (sendBeacon -> /api/logout). pop() makes it save-once even if both fire.
+    messages = _transcripts.pop(req.user_id, None)
+    if messages:
+        try:
+            save_memory(messages, req.user_id)
+        except Exception:
+            pass
     try:
         await session_service.delete_session(
             app_name="agents", user_id=req.user_id, session_id=f"session_{req.user_id}")
@@ -221,6 +240,8 @@ async def chat(req: ChatReq):
         if tool_calls:
             turn_span.set_attribute("llm.tool_calls", json.dumps([t["name"] for t in tool_calls]))
         turn_span.set_attribute(ATTR.OUTPUT_VALUE, masked)
+        _record(req.user_id, "user", req.message)
+        _record(req.user_id, "assistant", masked)
         return {"ok": True, "blocked": False, "response": masked, "tool_calls": tool_calls}
 
 
@@ -314,6 +335,8 @@ async def chat_stream(req: ChatReq):
                 display += txt
                 yield json.dumps({"type": "delta", "text": display}) + "\n"
             turn_span.set_attribute(ATTR.OUTPUT_VALUE, display)
+            _record(req.user_id, "user", req.message)
+            _record(req.user_id, "assistant", display)
             yield json.dumps({"type": "final", "text": display, "tool_calls": tool_calls}) + "\n"
         else:
             # MASK on -> can't stream; run to completion, mask, send one final chunk.
@@ -340,6 +363,8 @@ async def chat_stream(req: ChatReq):
                 masked = await _mask(display)
                 m_span.set_attribute(ATTR.OUTPUT_VALUE, masked[:500])
             turn_span.set_attribute(ATTR.OUTPUT_VALUE, masked)
+            _record(req.user_id, "user", req.message)
+            _record(req.user_id, "assistant", masked)
             yield json.dumps({"type": "final", "text": masked, "tool_calls": tool_calls}) + "\n"
 
     return StreamingResponse(gen(), media_type="application/x-ndjson")
@@ -349,7 +374,7 @@ async def chat_stream(req: ChatReq):
 # cs_agent/voice/; we only hand it the existing pipeline objects.
 from cs_agent.voice.router import make_voice_router
 app.include_router(make_voice_router(
-    runners=_runners, session_service=session_service, judge=_judge, mask=_mask))
+    runners=_runners, session_service=session_service, judge=_judge, mask=_mask, record=_record))
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -597,6 +622,11 @@ async function logout(){
   location.reload();
 }
 document.getElementById('logout').onclick=logout;
+// Closing the tab / navigating away is a session end too — flush memory via a beacon
+// (guaranteed to send during page unload) so voice + chat get saved just like Sign out.
+window.addEventListener('pagehide',()=>{
+  if(USER){ try{ navigator.sendBeacon('/api/logout', new Blob([JSON.stringify({user_id:USER})],{type:'application/json'})); }catch(e){} }
+});
 document.getElementById('loginBtn').onclick=login;
 document.getElementById('password').addEventListener('keydown',e=>{if(e.key==='Enter')login();});
 document.getElementById('send').onclick=send;

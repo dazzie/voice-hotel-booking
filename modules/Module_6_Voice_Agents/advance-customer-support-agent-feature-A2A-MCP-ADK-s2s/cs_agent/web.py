@@ -38,7 +38,7 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from toolbox_core import ToolboxSyncClient
 
-from memory import search_memory
+from memory import search_memory, save_memory
 from greet import authenticate_user
 from cs_agent.voice import make_voice_agent, run_voice_session, VOICE_MODEL, VOICE_NAME
 from telemetry import get_tracer
@@ -59,6 +59,15 @@ database_tools = toolbox_client.load_toolset("cs_agent_tools")
 
 session_service = InMemorySessionService()
 _runners: dict[str, Runner] = {}   # user_id -> Runner (Live model)
+_transcripts: dict[str, list] = {}  # user_id -> running [{role, content}] for this session,
+                                    # flushed to Mem0 on logout (mirrors the CLI's save-on-quit)
+
+
+def _record(user_id: str, role: str, content: str) -> None:
+    """Append one message to this user's session transcript (persisted on logout)."""
+    if user_id and content:
+        _transcripts.setdefault(user_id, []).append({"role": role, "content": content})
+
 
 app = FastAPI(title="Customer Support Voice Agent")
 
@@ -84,6 +93,7 @@ async def login(req: LoginReq):
         return JSONResponse({"ok": False, "error": "Invalid email or password."}, status_code=401)
     uid = ctx["email"]
     _runners[uid] = _build_runner(uid)
+    _transcripts[uid] = []            # fresh session transcript (drop any stale unsaved buffer)
     return {
         "ok": True,
         "user_id": uid,
@@ -98,6 +108,15 @@ async def login(req: LoginReq):
 @app.post("/api/logout")
 async def logout(req: LogoutReq):
     _runners.pop(req.user_id, None)
+    # Persist this session's conversation to Mem0 — the web equivalent of the CLI's
+    # save_memory(...) on `quit`. Fired by the Sign-out button AND by the browser tab
+    # closing (sendBeacon -> /api/logout). pop() makes it save-once even if both fire.
+    messages = _transcripts.pop(req.user_id, None)
+    if messages:
+        try:
+            save_memory(messages, req.user_id)
+        except Exception:
+            pass
     try:
         await session_service.delete_session(
             app_name="voice_agents", user_id=req.user_id, session_id=f"voice_{req.user_id}")
@@ -128,7 +147,7 @@ async def voice_ws(websocket: WebSocket):
 
     await websocket.send_json({"type": "ready"})
     try:
-        await run_voice_session(websocket, runner, user_id, session_id)
+        await run_voice_session(websocket, runner, user_id, session_id, record=_record)
     except Exception as exc:  # noqa: BLE001
         logger.exception("voice_ws error: %s", exc)
     finally:
@@ -505,6 +524,11 @@ async function logout(){
 }
 
 document.getElementById('logout').onclick=logout;
+// Closing the tab / navigating away is a session end too — flush memory via a beacon
+// (guaranteed to send during page unload) so voice + typed turns get saved like Sign out.
+window.addEventListener('pagehide',()=>{
+  if(USER){ try{ navigator.sendBeacon('/api/logout', new Blob([JSON.stringify({user_id:USER})],{type:'application/json'})); }catch(e){} }
+});
 document.getElementById('loginBtn').onclick=login;
 document.getElementById('password').addEventListener('keydown',e=>{if(e.key==='Enter')login();});
 document.getElementById('send').onclick=sendText;

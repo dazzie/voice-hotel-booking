@@ -201,7 +201,7 @@ async def _judge_transcript(text: str) -> bool:
             return True
 
 
-async def run_voice_session(websocket, runner, user_id: str, session_id: str) -> None:
+async def run_voice_session(websocket, runner, user_id: str, session_id: str, record=None) -> None:
     """Bridge a browser WebSocket to an ADK live session.
 
     Protocol with the browser client:
@@ -399,6 +399,12 @@ async def run_voice_session(websocket, runner, user_id: str, session_id: str) ->
                         _turn_span.set_attribute(ATTR.LLM_TOKEN_COUNT_TOTAL, cost["total_tokens"])
                         _turn_span.set_attribute(ATTR.LLM_COST_TOTAL, round(cost_model + jcost, 6))
 
+                # Record the spoken/typed turn into the session transcript (flushed to
+                # Mem0 on logout) — the voice equivalent of the CLI appending to `messages`.
+                if record:
+                    record(user_id, "user", turn["user_text"])
+                    record(user_id, "assistant", turn["agent_text"])
+
                 await websocket.send_json({
                     "type": "timing",
                     "mode": "text" if jmode == "sequential" else "voice",
@@ -480,6 +486,8 @@ async def run_voice_session(websocket, runner, user_id: str, session_id: str) ->
                     })
                     continue
                 _mark_agent_start()  # text: model starts AFTER the blocking judge
+                turn["user_text"] = clean   # typed input has no STT transcript; set it so
+                                            # the turn's input is recorded to memory too
                 live_request_queue.send_content(
                     types.Content(role="user", parts=[types.Part(text=clean)])
                 )

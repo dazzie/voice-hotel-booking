@@ -94,7 +94,7 @@ def _take_complete(buf: str):
     return buf[:cut], buf[cut:]
 
 
-def make_voice_router(*, runners, session_service, judge, mask) -> APIRouter:
+def make_voice_router(*, runners, session_service, judge, mask, record=None) -> APIRouter:
     router = APIRouter()
 
     @router.get("/voice/ui.js", include_in_schema=False)
@@ -130,6 +130,7 @@ def make_voice_router(*, runners, session_service, judge, mask) -> APIRouter:
         # ---- the answer half of the cascade (runs on the COMBINED query) ----------
         async def run_agent(text: str):
             nonlocal pending
+            answer_text = ""    # final reply for this turn; recorded to memory on success
             timing: dict[str, float] = {}
             # per-stage token counts for costing (stt already accrued in stt_acc)
             agent_tok = {"in": 0, "out": 0}
@@ -319,6 +320,7 @@ def make_voice_router(*, runners, session_service, judge, mask) -> APIRouter:
                     # attached) even if they landed after the last text delta.
                     await send_json({"type": "response_text", "text": display.strip(),
                                      "tool_calls": tool_calls})
+                    answer_text = display.strip()
                     pending = ""
                 else:
                     # ---- BUFFERED: full reply, optional A2A Masker, then speak ----
@@ -364,6 +366,7 @@ def make_voice_router(*, runners, session_service, judge, mask) -> APIRouter:
                         mask_tok["in"] = cost.estimate_tokens(pre_mask)
                         mask_tok["out"] = cost.estimate_tokens(final_text)
 
+                    answer_text = final_text
                     t = time.perf_counter()
                     text_sent = False
                     async for chunk in synthesize_stream(final_text, usage_out=tts_tok):
@@ -390,6 +393,11 @@ def make_voice_router(*, runners, session_service, judge, mask) -> APIRouter:
                 timing["total_response"] = round(stt_time["sec"] + answer_sec, 2)
                 await send_json({"type": "timing", "stages": timing})
                 await send_cost()
+                # Record the spoken turn into the session transcript (flushed to Mem0 on
+                # logout) — the voice equivalent of the CLI appending to `messages`.
+                if record and answer_text:
+                    record(user_id, "user", text)
+                    record(user_id, "assistant", answer_text)
                 await send_json({"type": "turn_end"})
                 pending = ""                          # answered — clear the buffer
                 stt_acc["in"] = stt_acc["out"] = 0     # STT billed — reset for next query
