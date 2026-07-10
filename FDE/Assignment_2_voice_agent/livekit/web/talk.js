@@ -1,6 +1,12 @@
 import { Room, RoomEvent } from "/node_modules/livekit-client/dist/livekit-client.esm.mjs";
 
 const participantsEl = document.querySelector("#participants");
+const providerEl = document.querySelector("#provider");
+const transcriptEl = document.querySelector("#transcript");
+const formEl = document.querySelector("#agent-form");
+const messageEl = document.querySelector("#caller-message");
+const speakToggleEl = document.querySelector("#speak-toggle");
+let speakReplies = true;
 
 const clients = {
   caller: {
@@ -73,6 +79,41 @@ function renderParticipants() {
   }
 }
 
+function addTranscript(role, text, meta = "") {
+  const empty = transcriptEl.querySelector(".empty");
+  if (empty) empty.remove();
+
+  const item = document.createElement("div");
+  item.className = `bubble ${role}`;
+  const label = document.createElement("div");
+  label.className = "bubble-label";
+  label.textContent = `${role === "caller" ? "Caller Demo" : "Aurora Agent"}${meta ? ` · ${meta}` : ""}`;
+  const body = document.createElement("div");
+  body.textContent = text;
+  item.append(label, body);
+  transcriptEl.appendChild(item);
+  transcriptEl.scrollTop = transcriptEl.scrollHeight;
+}
+
+function speak(text) {
+  if (!speakReplies || !("speechSynthesis" in window)) return;
+  window.speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.rate = 0.96;
+  utterance.pitch = 1.02;
+  window.speechSynthesis.speak(utterance);
+}
+
+async function loadState() {
+  try {
+    const response = await fetch("/state");
+    const state = await response.json();
+    providerEl.textContent = `Provider: ${state.agentProvider}`;
+  } catch {
+    providerEl.textContent = "Provider: unavailable";
+  }
+}
+
 function attachRoomEvents(client) {
   client.room.on(RoomEvent.TrackSubscribed, (track) => {
     if (track.kind !== "audio") return;
@@ -141,3 +182,46 @@ for (const client of Object.values(clients)) {
     toggleMute(client).catch((error) => setStatus(client, error.message));
   });
 }
+
+formEl.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const text = messageEl.value.trim();
+  if (!text) return;
+
+  messageEl.value = "";
+  addTranscript("caller", text);
+  const pending = document.createElement("div");
+  pending.className = "bubble agent pending";
+  pending.textContent = "Aurora Agent is thinking...";
+  transcriptEl.appendChild(pending);
+  transcriptEl.scrollTop = transcriptEl.scrollHeight;
+
+  try {
+    const response = await fetch("/agent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    const payload = await response.json();
+    pending.remove();
+    if (!response.ok) {
+      throw new Error(payload.error || `Agent request failed: ${response.status}`);
+    }
+    providerEl.textContent = `Provider: ${payload.provider} · ${payload.model}`;
+    addTranscript("agent", payload.reply, payload.action ? `action: ${payload.action}` : "");
+    speak(payload.reply);
+  } catch (error) {
+    pending.remove();
+    addTranscript("agent", error.message);
+  }
+});
+
+speakToggleEl.addEventListener("click", () => {
+  speakReplies = !speakReplies;
+  speakToggleEl.textContent = speakReplies ? "Speak replies on" : "Speak replies off";
+  if (!speakReplies && "speechSynthesis" in window) {
+    window.speechSynthesis.cancel();
+  }
+});
+
+loadState();

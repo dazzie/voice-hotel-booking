@@ -71,6 +71,29 @@
           <div class="empty">Join one or both panes to see participants.</div>
         </div>
       </section>
+
+      <section class="panel conversation-panel">
+        <div class="conversation-top">
+          <div>
+            <p class="eyebrow">Hotel agent brain</p>
+            <h2>Conversation</h2>
+          </div>
+          <div class="room-pill" id="provider">Provider: loading</div>
+        </div>
+        <div id="transcript" class="transcript" aria-live="polite">
+          <div class="empty">Send a caller message to see the hotel agent respond.</div>
+        </div>
+        <form id="agent-form" class="composer">
+          <input
+            id="caller-message"
+            type="text"
+            autocomplete="off"
+            placeholder="Ask about hotel availability or booking"
+          />
+          <button type="submit">Send to agent</button>
+          <button id="speak-toggle" type="button" class="secondary">Speak replies on</button>
+        </form>
+      </section>
     </main>
 
     <script type="module" src="/web/talk.js"></script>

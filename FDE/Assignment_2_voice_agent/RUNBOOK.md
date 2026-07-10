@@ -336,14 +336,15 @@ python create_token.py --identity caller-demo --name "Caller Demo"
 python create_token.py --identity aurora-agent --name "Aurora Agent"
 ```
 
-Mimic a caller and agent talking:
+Mimic a caller and agent talking, then show the hotel agent transcript:
 
 ```bash
 python talk_server.py
 ```
 
 Open `http://localhost:5173`. Click `Join caller`, then `Join agent`, and allow
-microphone access when the browser asks.
+microphone access when the browser asks. Use the Conversation panel to send hotel
+booking messages to the provider-backed agent.
 
 Conceptually:
 
@@ -352,6 +353,7 @@ LiveKit room = call/session
 caller-demo = caller participant
 aurora-agent = agent participant
 audio track = voice media
+conversation panel = provider-backed hotel agent transcript
 ```
 
 For real SIP, add a LiveKit SIP trunk, dispatch rule, and an agent worker that joins the room.

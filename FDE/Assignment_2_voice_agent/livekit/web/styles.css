@@ -177,6 +177,21 @@ button:disabled {
   cursor: not-allowed;
 }
 
+input {
+  min-height: 42px;
+  min-width: 0;
+  border: 1px solid #b8c0ce;
+  border-radius: 6px;
+  padding: 0 12px;
+  color: #151922;
+  font: inherit;
+}
+
+input:focus {
+  border-color: #1f55d8;
+  outline: 2px solid #dbe5ff;
+}
+
 .audio {
   display: none;
 }
@@ -211,6 +226,69 @@ button:disabled {
   color: #687386;
 }
 
+.conversation-panel {
+  gap: 16px;
+}
+
+.conversation-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.transcript {
+  min-height: 220px;
+  max-height: 360px;
+  overflow: auto;
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  border: 1px solid #e4e8ef;
+  border-radius: 8px;
+  background: #fafbfc;
+  padding: 12px;
+}
+
+.bubble {
+  width: min(76%, 720px);
+  border: 1px solid #dce2eb;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #ffffff;
+  line-height: 1.4;
+}
+
+.bubble.caller {
+  justify-self: start;
+  border-color: #cbd8ff;
+}
+
+.bubble.agent {
+  justify-self: end;
+  border-color: #cfe8dc;
+  background: #f8fffb;
+}
+
+.bubble.pending {
+  color: #687386;
+}
+
+.bubble-label {
+  margin-bottom: 4px;
+  color: #596274;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.composer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+}
+
 @media (max-width: 760px) {
   .header,
   .card-top,
@@ -226,5 +304,18 @@ button:disabled {
   .room-pill,
   .state {
     width: fit-content;
+  }
+
+  .conversation-top,
+  .composer {
+    grid-template-columns: 1fr;
+  }
+
+  .conversation-top {
+    display: grid;
+  }
+
+  .bubble {
+    width: 100%;
   }
 }

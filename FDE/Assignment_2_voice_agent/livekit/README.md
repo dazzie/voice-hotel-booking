@@ -89,13 +89,16 @@ Open `http://localhost:5173`:
 - Click `Join caller` in the Caller Demo pane.
 - Click `Join agent` in the Aurora Agent pane.
 - Allow microphone access when the browser asks.
+- Type a hotel booking request in the Conversation panel and click `Send to agent`.
 
 Now both panes are real LiveKit participants in `aurora-demo-room`. This mimics
-the media/session layer, not the hotel agent brain.
+the media/session layer. The Conversation panel calls the existing hotel agent
+through `PROVIDER=mock`, `PROVIDER=openai`, or `PROVIDER=groq` from `pipeline/.env`
+and shows the caller/agent transcript directly in the browser.
 
 To make Aurora answer as the actual hotel agent, the next production step is an
 agent worker that joins as `aurora-agent`, subscribes to caller audio, runs STT,
-calls the hotel agent tools, and publishes TTS audio back into the room.
+calls the hotel agent tools, and publishes TTS audio back into the LiveKit room.
 
 ## How This Maps To SIP
 
