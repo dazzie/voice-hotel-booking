@@ -18,14 +18,15 @@ from urllib.parse import parse_qs, urlparse
 import jwt
 from livekit import api
 
-HOST = "localhost"
-PORT = 5173
+HOST = os.getenv("TALK_HOST", "localhost")
+PORT = int(os.getenv("TALK_PORT", "5173"))
 ROOT = Path(__file__).resolve().parent
 ASSIGNMENT_ROOT = ROOT.parent
 PIPELINE_ROOT = ASSIGNMENT_ROOT / "pipeline"
 
-_agent_lock = threading.Lock()
-_agent_session = None
+_session_registry_lock = threading.Lock()
+_agent_sessions: dict[str, object] = {}
+_session_locks: dict[str, threading.Lock] = {}
 
 
 def _load_env_files() -> None:
@@ -65,36 +66,79 @@ def _livekit_room() -> str:
     return os.getenv("LIVEKIT_ROOM", "aurora-demo-room")
 
 
-def _get_agent():
-    global _agent_session
-    if _agent_session is not None:
-        return _agent_session
+def _new_agent():
     if str(PIPELINE_ROOT) not in sys.path:
         sys.path.insert(0, str(PIPELINE_ROOT))
     from agent import Agent
     from providers import make_provider
 
-    _agent_session = Agent(make_provider(_agent_provider_name()))
-    return _agent_session
+    return Agent(make_provider(_agent_provider_name()))
 
 
-def _agent_reply(text: str) -> dict:
-    with _agent_lock:
-        agent = _get_agent()
-        reply, action = agent.respond(text)
+def _get_session(session_id: str):
+    with _session_registry_lock:
+        if session_id not in _agent_sessions:
+            _agent_sessions[session_id] = _new_agent()
+            _session_locks[session_id] = threading.Lock()
+        return _agent_sessions[session_id], _session_locks[session_id]
+
+
+def _reset_session(session_id: str) -> None:
+    with _session_registry_lock:
+        _agent_sessions.pop(session_id, None)
+        _session_locks.pop(session_id, None)
+
+
+def _trace(session_id: str, turn_id: str | None = None):
+    if str(PIPELINE_ROOT) not in sys.path:
+        sys.path.insert(0, str(PIPELINE_ROOT))
+    from telemetry import TurnTrace
+
+    return TurnTrace(session_id=session_id, turn_id=turn_id)
+
+
+def _finish_response(agent, trace, reply: str, action: str | None, **extra) -> dict:
+    from telemetry import write_trace
+
+    sources = extra.pop("response_sources", agent.last_sources)
+    payload = trace.finish(action=action, sources=sources)
+    write_trace(payload)
     return {
         "reply": reply,
         "action": action,
         "provider": getattr(agent.provider, "name", _agent_provider_name()),
         "model": getattr(agent.provider, "llm_model", "unknown"),
+        "language": agent.current_language,
+        "locale": agent.current_locale,
+        "sources": sources,
+        "trace": payload,
+        **extra,
     }
 
 
-def _voice_agent_reply(audio: bytes, content_type: str) -> dict:
-    with _agent_lock:
-        agent = _get_agent()
+def _agent_reply(text: str, session_id: str, turn_id: str | None) -> dict:
+    agent, lock = _get_session(session_id)
+    trace = _trace(session_id, turn_id)
+    trace.event("input.text")
+    with lock:
+        reply, action = agent.respond(text, trace=trace)
+    return _finish_response(agent, trace, reply, action)
+
+
+def _voice_agent_reply(
+    audio: bytes,
+    content_type: str,
+    session_id: str,
+    turn_id: str | None,
+    was_barge_in: bool,
+) -> dict:
+    agent, lock = _get_session(session_id)
+    trace = _trace(session_id, turn_id)
+    trace.event("audio.received", bytes=len(audio), contentType=content_type)
+    with lock:
         if getattr(agent.provider, "name", "") == "mock":
-            transcript = agent.provider.transcribe(b"")
+            with trace.span("stt", model=getattr(agent.provider, "stt_model", "unknown")):
+                transcript = agent.provider.transcribe(b"")
         else:
             audio_file = BytesIO(audio)
             if "mp4" in content_type:
@@ -103,20 +147,48 @@ def _voice_agent_reply(audio: bytes, content_type: str) -> dict:
                 audio_file.name = "caller.ogg"
             else:
                 audio_file.name = "caller.webm"
-            stt = agent.provider.client.audio.transcriptions.create(
-                model=agent.provider.stt_model,
-                file=audio_file,
-                response_format="text",
-            )
+            with trace.span("stt", model=getattr(agent.provider, "stt_model", "unknown")):
+                stt = agent.provider.client.audio.transcriptions.create(
+                    model=agent.provider.stt_model,
+                    file=audio_file,
+                    response_format="text",
+                )
             transcript = (stt if isinstance(stt, str) else stt.text).strip()
-        reply, action = agent.respond(transcript)
-    return {
-        "transcript": transcript,
-        "reply": reply,
-        "action": action,
-        "provider": getattr(agent.provider, "name", _agent_provider_name()),
-        "model": getattr(agent.provider, "llm_model", "unknown"),
-        "sttModel": getattr(agent.provider, "stt_model", "unknown"),
+        if was_barge_in and _is_probable_playback_echo(transcript):
+            trace.event("barge_in.echo_suppressed", transcript=transcript)
+            return _finish_response(
+                agent,
+                trace,
+                "",
+                None,
+                transcript=transcript,
+                sttModel=getattr(agent.provider, "stt_model", "unknown"),
+                ignored=True,
+                ignoreReason="probable_playback_echo",
+                response_sources=[],
+            )
+        reply, action = agent.respond(transcript, trace=trace)
+    return _finish_response(
+        agent,
+        trace,
+        reply,
+        action,
+        transcript=transcript,
+        sttModel=getattr(agent.provider, "stt_model", "unknown"),
+    )
+
+
+def _is_probable_playback_echo(transcript: str) -> bool:
+    normalized = " ".join(
+        transcript.lower().replace("'", "").replace(".", "").replace(",", "").split()
+    )
+    return normalized in {
+        "all right",
+        "alright",
+        "thanks",
+        "thank you",
+        "youre welcome",
+        "your welcome",
     }
 
 
@@ -153,6 +225,7 @@ class Handler(SimpleHTTPRequestHandler):
                 "livekitRoom": _livekit_room(),
                 "livekitUrl": _livekit_url(),
                 "agentProvider": _agent_provider_name(),
+                "languages": ["en", "es"],
             })
         if parsed.path != "/token":
             return super().do_GET()
@@ -172,8 +245,13 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
+        session_id = self.headers.get("X-Session-ID", "browser-demo")
+        turn_id = self.headers.get("X-Turn-ID")
+        if parsed.path == "/reset":
+            _reset_session(session_id)
+            return self._send_json({"reset": True, "sessionId": session_id})
         if parsed.path == "/voice-agent":
-            return self._handle_voice_agent()
+            return self._handle_voice_agent(session_id, turn_id)
         if parsed.path != "/agent":
             self.send_error(404, "File not found")
             return
@@ -185,19 +263,25 @@ class Handler(SimpleHTTPRequestHandler):
             text = str(payload.get("text", "")).strip()
             if not text:
                 raise ValueError("Missing text")
-            response = _agent_reply(text)
+            response = _agent_reply(text, session_id, turn_id)
         except Exception as exc:
             self._send_json({"error": str(exc)}, status=500)
             return
         self._send_json(response)
 
-    def _handle_voice_agent(self) -> None:
+    def _handle_voice_agent(self, session_id: str, turn_id: str | None) -> None:
         try:
             length = int(self.headers.get("Content-Length", "0"))
             audio = self.rfile.read(length)
             if not audio:
                 raise ValueError("Missing audio")
-            response = _voice_agent_reply(audio, self.headers.get("Content-Type", ""))
+            response = _voice_agent_reply(
+                audio,
+                self.headers.get("Content-Type", ""),
+                session_id,
+                turn_id,
+                self.headers.get("X-Barge-In", "false").lower() == "true",
+            )
         except Exception as exc:
             self._send_json({"error": str(exc)}, status=500)
             return
@@ -214,6 +298,10 @@ class Handler(SimpleHTTPRequestHandler):
 
 def main() -> None:
     _load_env_files()
+    os.environ.setdefault(
+        "TELEMETRY_JSONL",
+        str(ASSIGNMENT_ROOT / "logs" / "voice-events.jsonl"),
+    )
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"Open http://{HOST}:{PORT}")
     print(f"LiveKit URL: {_livekit_url()}")

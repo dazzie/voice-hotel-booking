@@ -156,27 +156,65 @@ class MockProvider:
     def chat(self, messages: list[dict], tools=None):
         """Rule-based reply mimicking OpenAI-style tool calling."""
         last = messages[-1]
+        spanish = "Current response language: Spanish" in messages[0].get("content", "")
         # After a tool ran, speak a reply built from its result.
         if last.get("role") == "tool":
             result = last["content"]
             if result.lower().startswith("available rooms"):
+                if spanish:
+                    return _mk_text(f"{result} ¿Quiere que reserve una de estas habitaciones?")
                 return _mk_text(f"{result} Would you like me to book one of these?")
             if result.lower().startswith("booking confirmed"):
+                if spanish:
+                    confirmation = re.search(r"AH-\d+", result)
+                    code = confirmation.group(0) if confirmation else "confirmada"
+                    return _mk_text(f"La reserva está confirmada. Su número de confirmación es {code}.")
                 return _mk_text(result)
+            if result.lower().startswith("grounded hotel knowledge"):
+                tool_args = _previous_tool_arguments(messages)
+                return _mk_text(_grounded_policy_reply(result, spanish, tool_args.get("query", "")))
+            if result.lower().startswith("transferring") and spanish:
+                return _mk_text("Le transfiero a la recepción.")
+            if result.lower().startswith("ending") and spanish:
+                return _mk_text("Gracias por llamar a Aurora Hotel. Adiós.")
             return _mk_text(result)  # transfer / hangup / not-found: speak as-is
 
         text = (last.get("content") or "").lower()
-        if any(w in text for w in ("human", "person", "representative", "agent", "operator")):
-            return _mk_tool("transfer_to_human", {})
+        tokens = set(re.findall(r"[\wáéíóúüñ]+", text, flags=re.UNICODE))
+        if any(w in text for w in (
+            "cancellation policy", "cancel policy", "check-in", "check in", "check-out",
+            "check out", "parking", "pets", "pet policy", "breakfast", "accessible",
+            "accessibility", "policy", "estacionamiento", "mascotas", "desayuno",
+        )):
+            return _mk_tool("search_hotel_knowledge", {"query": last.get("content") or ""})
         if any(w in text for w in ("bye", "goodbye", "that's all", "thats all",
-                                   "nothing else", "no thanks", "hang up")):
+                                   "nothing else", "no thanks", "hang up", "adiós", "adios")):
             return _mk_tool("end_call", {})
-        if any(w in text for w in ("weather", "news", "sports", "stock", "joke", "trivia")):
+        if any(w in text for w in (
+            "weather", "news", "sports", "stock", "joke", "trivia", "clima", "noticias",
+        )):
+            if spanish:
+                return _mk_text("Solo puedo ayudar con reservas de hotel. ¿Quiere reservar, cambiar o cancelar una estancia?")
             return _mk_text("I can only help with hotel reservations. Are you looking to book, change, or cancel a stay?")
+        if any(phrase in text for phrase in (
+            "speak spanish", "switch to spanish", "spanish please", "habla español",
+            "hable español", "en español",
+        )):
+            return _mk_text("Claro. Puedo ayudarle con una reserva en Aurora Hotel.")
+        if any(phrase in text for phrase in ("speak english", "switch to english", "english please")):
+            return _mk_text("Of course. I can continue in English with your Aurora Hotel reservation.")
+        if any(phrase in text for phrase in (
+            "another reservation", "another guest", "other guest", "someone else's",
+        )):
+            if spanish:
+                return _mk_text("No puedo revelar datos de otro huésped. Solo puedo ayudar con su propia reserva de hotel.")
+            return _mk_text("I cannot disclose another guest's information. I can only help with your own hotel reservation.")
+        if tokens & {"human", "person", "representative", "agent", "operator", "persona", "recepción"}:
+            return _mk_tool("transfer_to_human", {})
         if any(w in text for w in ("change", "cancel", "modify", "front desk")):
             return _mk_tool("transfer_to_human", {})
-        if any(w in text for w in ("book", "reserve", "yes", "confirm")) and any(
-            w in text for w in ("name", "email", "@", "phone", "priya", "shah")
+        if any(w in text for w in ("book", "reserve", "yes", "confirm", "reservar", "confirmo")) and any(
+            w in text for w in ("name", "email", "@", "phone", "priya", "shah", "nombre")
         ):
             return _mk_tool("create_booking", {
                 "check_in": "August 12",
@@ -186,13 +224,18 @@ class MockProvider:
                 "guest_name": "Priya Shah",
                 "contact": "priya@example.com",
             })
-        if any(w in text for w in ("room", "hotel", "stay", "book", "reservation", "guests", "guest")):
+        if any(w in text for w in (
+            "room", "hotel", "stay", "book", "reservation", "guests", "guest",
+            "habitación", "habitacion", "reserva", "personas", "huéspedes", "huespedes",
+        )):
             return _mk_tool("check_availability", {
                 "check_in": "August 12",
                 "check_out": "August 14",
                 "guests": 2,
                 "room_type": "standard",
             })
+        if spanish:
+            return _mk_text("Solo puedo ayudar con reservas de hotel. ¿Quiere reservar, cambiar o cancelar una estancia?")
         return _mk_text("I can help with hotel reservations only. Would you like to book, change, or cancel a stay?")
 
     def transcribe(self, pcm_int16: bytes, sample_rate: int = 16000) -> str:
@@ -216,6 +259,41 @@ def _mk_tool(name: str, args: dict):
     tc = NS(id=f"call_{name}", type="function",
             function=NS(name=name, arguments=json.dumps(args)))
     return NS(choices=[NS(message=NS(content=None, tool_calls=[tc]))])
+
+
+def _previous_tool_arguments(messages: list[dict]) -> dict:
+    if len(messages) < 2:
+        return {}
+    calls = messages[-2].get("tool_calls") or []
+    if not calls:
+        return {}
+    try:
+        return json.loads(calls[0]["function"].get("arguments") or "{}")
+    except (json.JSONDecodeError, KeyError, TypeError):
+        return {}
+
+
+def _grounded_policy_reply(result: str, spanish: bool, query: str) -> str:
+    topic = query.lower()
+    if "cancel" in topic:
+        if spanish:
+            return "Puede cancelar sin cargo hasta las 6:00 PM, hora local del hotel, dos días antes de la llegada. Las tarifas promocionales prepagadas no son reembolsables."
+        return "You may cancel without charge until 6:00 PM local hotel time two days before arrival. Prepaid promotional rates are non-refundable."
+    if "parking" in topic or "estacionamiento" in topic:
+        if spanish:
+            return "El estacionamiento cuesta $28 por noche y el servicio de valet cuesta $42 por noche."
+        return "Self-parking is $28 per night, and valet parking is $42 per night."
+    if "pet" in topic or "dog" in topic or "mascota" in topic:
+        if spanish:
+            return "Se permiten hasta dos perros por habitación, con un límite de 50 libras por perro y una tarifa de limpieza de $75 por estancia."
+        return "Up to two dogs are allowed per room, with a 50-pound limit per dog and a $75 cleaning fee per stay."
+    if "breakfast" in topic or "desayuno" in topic:
+        if spanish:
+            return "El desayuno se sirve de 6:30 AM a 10:30 AM y solo está incluido cuando la tarifa lo indica."
+        return "Breakfast is served from 6:30 AM to 10:30 AM and is included only when the selected rate says so."
+    if spanish:
+        return "Encontré la política de Aurora Hotel y puedo ayudarle con los detalles de su reserva."
+    return "I found the relevant Aurora Hotel policy and can help apply it to your reservation."
 
 
 def make_provider(name: str | None = None):
