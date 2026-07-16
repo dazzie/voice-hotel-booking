@@ -15,7 +15,10 @@ from __future__ import annotations
 
 import json
 
+from knowledge import search_hotel_knowledge
 from providers import Provider
+from router import AgentRouter, LANGUAGES
+from telemetry import TurnTrace
 
 SYSTEM_PROMPT = """You are a friendly phone reservations agent for Aurora Hotel.
 Your only job is hotel room booking support: new reservations, availability,
@@ -28,7 +31,8 @@ Guardrails:
 - For off-topic requests, politely say you can only help with hotel reservations
   and ask whether they want to book, change, or cancel a stay.
 - Never invent availability, rates, confirmation numbers, policies, or guest
-  details. Use tools for availability and booking.
+  details. Use tools for availability and booking. Use search_hotel_knowledge
+  for policies, amenities, accessibility, parking, pets, and breakfast.
 - Keep replies short and spoken-friendly: one or two sentences, no bullet lists,
   no markdown, no emoji.
 
@@ -49,7 +53,7 @@ Booking flow:
 TOOLS = [
     {
         "type": "function",
-            "function": {
+        "function": {
             "name": "check_availability",
             "description": "Check hotel room availability for dates, guests, and optional room type.",
             "parameters": {
@@ -102,6 +106,23 @@ TOOLS = [
                     "guest_name",
                     "contact",
                 ],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_hotel_knowledge",
+            "description": "Retrieve grounded Aurora Hotel policies, amenities, and operating details.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The caller's policy or hotel-information question.",
+                    },
+                },
+                "required": ["query"],
             },
         },
     },
@@ -181,6 +202,8 @@ def run_tool(name: str, args: dict) -> dict:
                       f"{args.get('guests')} guest(s). Confirmation sent to "
                       f"{args.get('contact')}.",
         }
+    if name == "search_hotel_knowledge":
+        return search_hotel_knowledge(str(args.get("query", "")))
     if name == "transfer_to_human":
         return {"result": "Transferring you to the front desk.", "action": "transfer"}
     if name == "end_call":
@@ -194,24 +217,54 @@ class Agent:
     def __init__(self, provider: Provider):
         self.provider = provider
         self.messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
+        self.router = AgentRouter()
+        self.current_language = "en"
+        self.current_locale = LANGUAGES["en"]["locale"]
+        self.last_trace: TurnTrace | None = None
+        self.last_sources: list[str] = []
 
-    def respond(self, user_text: str) -> tuple[str, str | None]:
+    def respond(self, user_text: str, trace: TurnTrace | None = None) -> tuple[str, str | None]:
         """Take the caller's transcript, return (spoken_reply, action|None).
 
         Loops until the model produces a plain text reply, executing any tool
         calls in between. `action` is the last control signal seen (transfer/
         hangup), which the voice loop uses to end the call.
         """
+        trace = trace or TurnTrace()
+        self.last_trace = trace
+        self.last_sources = []
+
+        with trace.span("routing"):
+            route = self.router.route(user_text)
+            self.current_language = route.language
+            self.current_locale = route.locale
+            self.messages[0]["content"] = f"{SYSTEM_PROMPT}\n\n{self.router.instruction()}"
+        trace.event(
+            "router.selected",
+            language=route.language,
+            locale=route.locale,
+            changed=route.changed,
+            reason=route.reason,
+        )
+        trace.attributes.update({
+            "language": route.language,
+            "locale": route.locale,
+            "provider": getattr(self.provider, "name", "unknown"),
+            "model": getattr(self.provider, "llm_model", "unknown"),
+        })
+        trace.event("caller.transcript", text=user_text)
         self.messages.append({"role": "user", "content": user_text})
         action: str | None = None
 
         while True:
-            resp = self.provider.chat(self.messages, tools=TOOLS)
+            with trace.span("llm", model=getattr(self.provider, "llm_model", "unknown")):
+                resp = self.provider.chat(self.messages, tools=TOOLS)
             msg = resp.choices[0].message
 
             if not msg.tool_calls:
                 reply = msg.content or ""
                 self.messages.append({"role": "assistant", "content": reply})
+                trace.event("assistant.response", text=reply, action=action)
                 return reply, action
 
             # Record the assistant's tool-call turn, then answer each call.
@@ -233,7 +286,21 @@ class Agent:
                     args = json.loads(tc.function.arguments or "{}")
                 except json.JSONDecodeError:
                     args = {}
-                result = run_tool(tc.function.name, args)
+                trace.event("tool.requested", tool=tc.function.name, arguments=args)
+                with trace.span("tools", tool=tc.function.name):
+                    if tc.function.name == "search_hotel_knowledge":
+                        with trace.span("retrieval", query=args.get("query", "")):
+                            result = run_tool(tc.function.name, args)
+                    else:
+                        result = run_tool(tc.function.name, args)
+                trace.event(
+                    "tool.result",
+                    tool=tc.function.name,
+                    result=result.get("result", ""),
+                    sources=result.get("sources", []),
+                    action=result.get("action"),
+                )
+                self.last_sources.extend(result.get("sources", []))
                 if result.get("action"):
                     action = result["action"]
                 self.messages.append({
