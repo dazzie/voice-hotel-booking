@@ -1,0 +1,59 @@
+# Provided scaffolding: the inference fleet.
+# Read every field before applying. Each one exists for a reason covered in the session.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm
+  labels:
+    app: vllm
+spec:
+  replicas: 2                       # the fleet: N identical copies, one per GPU
+  strategy:
+    rollingUpdate:
+      maxUnavailable: 0             # never dip below full capacity during a roll
+      maxSurge: 1                   # bring the new pod up before killing the old
+  selector:
+    matchLabels:
+      app: vllm
+  template:
+    metadata:
+      labels:
+        app: vllm
+    spec:
+      terminationGracePeriodSeconds: 120   # let in-flight streams finish
+      tolerations:
+      - key: nvidia.com/gpu               # the velvet rope: only GPU workloads pass
+        operator: Exists
+        effect: NoSchedule
+      containers:
+      - name: vllm
+        image: vllm/vllm-openai:latest
+        args:
+        - "--model"
+        - "Qwen/Qwen3-1.7B"
+        - "--max-model-len"
+        - "4096"
+        ports:
+        - containerPort: 8000
+        resources:
+          limits:
+            nvidia.com/gpu: 1             # whole units, no fractions by default
+        readinessProbe:
+          httpGet:
+            path: /health                 # model in memory, never just "port open"
+            port: 8000
+          initialDelaySeconds: 60         # weights take minutes, not seconds
+          periodSeconds: 10
+          failureThreshold: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm
+spec:
+  type: LoadBalancer                      # the front door
+  selector:
+    app: vllm
+  ports:
+  - port: 80
+    targetPort: 8000

@@ -64,6 +64,7 @@ Four classes, four real-world products, all built end to end — from efficiency
 | # | Name | You build | Core skills |
 |---|------|-----------|-------------|
 | 1 | [Live Translate](Assignment_1_Live_Translate/) | A two-service backend (Node gateway + Python AI service) behind a provided browser widget that live-translates any page EN → Mexican Spanish | LLM calls, caching, structured logging + tracing, service separation, API contracts, deploy on Fly.io |
+| 3 | [AI Infra on Kubernetes](Assignment_3_AI_Infra_K8s/) | A real GKE cluster serving vLLM as a two-replica fleet behind a LoadBalancer, plus three break-and-fix production experiments and a graded teardown | Kubernetes (pods, node pools, probes, rollouts), GPU scheduling, vLLM serving, capacity and cost hygiene |
 | … | _more coming_ | | |
 
 Each assignment folder is self-contained with its own `README.md`, provided scaffolding,
