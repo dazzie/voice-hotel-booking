@@ -87,7 +87,7 @@ Use this booking story:
 
 ```text
 I need a room from August 12 to August 14 for two guests.
-Book it for Priya Shah at priya@example.com.
+Book it for Tom Smith at tomsmoth@yahoo.com.
 ```
 
 Expected evidence:
