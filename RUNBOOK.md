@@ -346,6 +346,68 @@ public voice edge -> SBC or managed SIP service
 ```
 
 
+## Voice Loop Tuning — Session Results (2026-07-22)
+
+Tested with OpenAI provider (`gpt-4o-mini` + `whisper-1`), `TTS_BACKEND=system` (browser SpeechSynthesis), on macOS with a laptop microphone and speakers.
+
+### Problems Encountered
+
+1. **TTS feedback loop**: The browser VAD picked up the agent's own TTS playback as caller speech, creating a cycle of echo → STT → agent response → TTS → echo. Requests fired every 3-4 seconds indefinitely.
+2. **False barge-in**: During agent responses, mic echo triggered barge-in detection, cutting off responses after ~1 second (arm period 450ms + confirmation 200ms = 650ms).
+3. **Chrome SpeechSynthesis cutoff**: Long responses (room listings) silently stopped after ~15 seconds due to a known Chrome bug.
+4. **Whisper hallucinations**: Whisper generated plausible Spanish phrases from noise — "Estamos listos", "¡Gracias por ver el video!", "Suscríbete al canal" — classic hallucination patterns on silence or low-energy audio.
+
+### Tuning Changes Applied
+
+#### Client-side (`livekit/web/talk.js`)
+
+| Parameter | Original | Tuned | Reason |
+|-----------|----------|-------|--------|
+| `bargeInArmMs` | 450 | 2000 | Allows 2 seconds of echo calibration before barge-in detection starts |
+| `bargeInConfirmationMs` | 200 | 350 | Requires sustained speech to confirm interruption; brief echo spikes are filtered |
+| `endpointSilenceMs` | 650 | 650 | Unchanged; acceptable tradeoff between responsiveness and cutoff risk |
+| Post-playback cooldown | 500 | 700 | Prevents immediate re-triggering after TTS ends without adding noticeable delay |
+| Suppressed-turn cooldown | — | 2000 | When the server suppresses an echo turn, the client waits 2 seconds before listening |
+| Barge threshold | `echoFloor * 1.8` | `echoFloor * 2.0` | Sits higher above tracked echo level; minimum raised from 0.024 to 0.03 |
+| TTS volume | 1.0 | 0.7 | Reduces speaker output and therefore mic echo |
+| TTS keepalive | — | pause/resume every 5s | Prevents Chrome from silently killing long SpeechSynthesis utterances |
+| Consecutive barge-in counter | — | 2+ = suppressed with 3s cooldown | Detects and breaks echo loops; resets on normal turns |
+| Minimum turn duration | — | 400ms | Discards recordings shorter than 400ms before sending to STT |
+
+#### Server-side (`livekit/talk_server.py`)
+
+- **Echo phrase filter**: Expanded to catch common filler words ("okay", "hmm", "uh", "yeah", etc.) and transcripts 3 characters or shorter.
+- **Whisper hallucination filter**: Added known hallucination phrases — "gracias por ver el video", "estamos listos", "suscribete al canal", "thanks for watching", "like and subscribe", etc.
+- **Empty transcript filter**: All turns with empty STT output are suppressed before reaching the agent.
+- **Barge-in echo filter**: Echo phrase suppression applies only to barge-in turns to avoid blocking legitimate short responses.
+
+#### STT prompt (`pipeline/.env`)
+
+```env
+STT_PROMPT=Aurora Hotel, Standard Queen, Deluxe King, Harbor Suite, Family Double Queen, Accessible Queen, booking, reservation, cancellation, check-in, check-out, guests, availability, front desk, pet policy, parking
+```
+
+Whisper uses this as vocabulary context, improving transcription accuracy for hotel-specific terms.
+
+### Session Results
+
+After tuning, a full booking session ran cleanly:
+
+- 8 turns, all spaced 12-27 seconds apart — natural turn-taking with no loop
+- Room listing read out fully without cutoff
+- No false barge-in interruptions
+- No Whisper hallucinations reaching the agent
+- STT accuracy improved with hotel vocabulary prompt
+- Booking flow completed: availability → room selection → guest details → confirmation
+- Transfer to front desk worked correctly
+
+### Remaining Limitations
+
+- Barge-in requires speaking clearly and louder than the TTS output due to the 2-second arm period and higher threshold. This is the tradeoff for eliminating false interruptions.
+- Whisper occasionally mistranscribes short phrases; speaking in longer sentences helps.
+- The hallucination filter is a blocklist — new hallucination patterns require manual additions.
+- Browser echo cancellation quality varies by device and environment. Different hardware may need different threshold values.
+
 ## Troubleshooting
 
 | Symptom | Resolution |
@@ -361,3 +423,8 @@ public voice edge -> SBC or managed SIP service
 | Provider TTS fails | Use `TTS_BACKEND=system` and restart `talk_server.py` |
 | LiveKit uses the system voice | Set `TTS_BACKEND=provider`, restart `talk_server.py`, and confirm the UI shows the provider voice |
 | Live service fails during class | Return to mock text mode and continue the architecture path |
+| TTS feedback loop (rapid requests) | The consecutive barge-in counter should catch this. If not, increase `bargeInArmMs` or the post-playback cooldown in `talk.js` |
+| Responses cut off mid-sentence | Chrome SpeechSynthesis bug. The TTS keepalive (pause/resume every 5s) should prevent this. If it recurs, reduce TTS response length in the agent prompt |
+| Whisper generates Spanish from noise | Add the hallucinated phrase to `_WHISPER_HALLUCINATIONS` in `talk_server.py` and restart |
+| Barge-in not triggering | Lower `bargeInArmMs`, `bargeInConfirmationMs`, or the barge threshold multiplier in `talk.js`. Test for echo loop regression after changes |
+| STT misses hotel terms | Add terms to `STT_PROMPT` in `pipeline/.env` and restart `talk_server.py` |
