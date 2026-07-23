@@ -1,4 +1,4 @@
-# Assignment 2: Aurora Hotel Voice Agent
+# Aurora Hotel Voice Agent
 
 Aurora is a practical hotel-reservations voice agent built for an FDE workshop. The project starts with a deterministic text agent and progressively adds a live model, business tools, local retrieval, multilingual routing, microphone audio, turn detection, telemetry, LiveKit rooms, evaluation, and capacity planning.
 
