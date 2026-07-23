@@ -1,14 +1,10 @@
 .DS_Store
-*.log
+pipeline/.env
+pipeline/.venv/
+livekit/.venv/
+livekit/.env
+livekit/node_modules/
 __pycache__/
 *.pyc
-
-# Secrets — never commit real keys
-.env
-.env.*
-!.env.example
-
-# Virtual environments (regenerable, huge)
-.venv/
-venv/
-market-sizing-sdk/
+private/
+logs/*.jsonl

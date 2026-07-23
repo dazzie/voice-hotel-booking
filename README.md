@@ -1,274 +1,264 @@
-<div align="center">
+# Assignment 2: Aurora Hotel Voice Agent
 
-# 🤖 Agent Engineering Bootcamp
-### Developers Edition
+Aurora is a practical hotel-reservations voice agent built for an FDE workshop. The project starts with a deterministic text agent and progressively adds a live model, business tools, local retrieval, multilingual routing, microphone audio, turn detection, telemetry, LiveKit rooms, evaluation, and capacity planning.
 
-**From a 50-line agent loop to validated, production-grade agentic systems — built every week, by you.**
+The core cascade is:
 
-[![Course](https://img.shields.io/badge/Maven-Live%20Cohort-6E40C9?style=for-the-badge)](https://maven.com/boring-bot/advanced-llm)
-&nbsp;
-![Rating](https://img.shields.io/badge/★%204.8%2F5-107%20reviews-FF6F61?style=for-the-badge)
-&nbsp;
-![Modules](https://img.shields.io/badge/6%20Modules-~6%20weeks-2EA043?style=for-the-badge)
-&nbsp;
-[![Built with Claude](https://img.shields.io/badge/Built%20with-Claude%20Code-D97757?style=for-the-badge&logo=anthropic&logoColor=white)](https://claude.com/claude-code)
+```text
+caller audio -> VAD and endpointing -> STT -> AgentRouter -> LLM -> RAG and tools -> TTS
+```
 
-[**Course page**](https://maven.com/boring-bot/advanced-llm) · [**Curriculum**](#course-curriculum) · [**What you'll build**](#what-youll-build) · [**Sprint Zero capstone**](#full-stack-projects) · [**Learn with Claude**](#learn-with-claude-ai-tutor)
+## Capabilities
 
-<img width="900" alt="Agent Engineering Bootcamp" src="assets/image.png" />
+- Hotel availability and mock booking tools
+- Hotel-only conversational guardrails
+- Local policy RAG using SQLite FTS5
+- English and Spanish session routing
+- Mock, OpenAI, and Groq provider modes
+- Local microphone capture with WebRTC VAD
+- Browser VAD with adaptive noise calibration and playback barge-in
+- Per-turn structured telemetry and a browser trace timeline
+- Local LiveKit room with caller and agent participants
+- Deterministic task evaluation and red-team suites
+- Zero-cost capacity calculator for DAU and concurrency planning
+- SIP and IVR simulations for telephony mapping
 
-</div>
+## Project Structure
 
----
+```text
+Assignment_2_voice_agent/
+|-- README.md
+|-- RUNBOOK.md
+|-- knowledge/
+|   `-- hotel_policies.md
+|-- evals/
+|   |-- core.json
+|   |-- red_team.json
+|   `-- run_evals.py
+|-- pipeline/
+|   |-- agent.py
+|   |-- knowledge.py
+|   |-- providers.py
+|   |-- router.py
+|   |-- scale_check.py
+|   |-- telemetry.py
+|   |-- test_features.py
+|   `-- voice_loop.py
+|-- livekit/
+|   |-- start_local_server.sh
+|   |-- create_room.py
+|   |-- talk_server.py
+|   `-- web/
+`-- mocks/
+    |-- demo_call.py
+    |-- ivr_menu_mock.py
+    `-- sip-ivr-call-flow.md
+```
 
-Welcome to the official course repository for **Agent Engineering Bootcamp: Developers Edition** — all the code, notebooks, exercises, and project materials used throughout the course. It's a structured journey from deployment efficiency to validated agentic systems: the agent harness and ReAct orchestration, voice agents, hybrid memory (RAG + Knowledge Graphs), multi-agent coordination, and the evaluation discipline that proves it all works.
+## Quick Start Without An API Key
 
-## Quick Links
-
-**Course modules** (in teaching order):
-
-1. [Module 1 — The Agent Loop, ReAct & the Harness](#module-1--the-agent-loop-react--the-harness)
-2. [Module 2 — Skills, Subagents & Multi-Agent Orchestration](#module-2--skills-subagents--multi-agent-orchestration)
-3. [Module 3 — Agentic RAG, Semantic Cache & Knowledge Graphs](#module-3--agentic-rag-semantic-cache--knowledge-graphs)
-4. [Module 4 — Evaluation & Guardrails](#module-4--evaluation--guardrails)
-5. [Module 5 — Multi-Agent Systems (MCP · A2A · ADK)](#module-5--multi-agent-systems-mcp--a2a--adk)
-6. [Module 6 — Voice Agents](#module-6--voice-agents)
-
-**Also on this page:** [How to use this repo](#how-to-use-this-repo) · [Technology stack](#technology-stack) · [What you'll build](#what-youll-build) · [FDE Track](#forward-deployed-engineer-fde-track)
-
-### 🗺️ Course at a glance
-
-| # | Module | The big idea | You ship |
-|---|--------|--------------|----------|
-| 1️⃣ | **The Agent Loop, ReAct & the Harness** | What an agent *actually* is | A ReAct agent from scratch |
-| 2️⃣ | **Skills, Subagents & Orchestration** | One agent → a coordinated system | **Sprint Zero** — a multi-agent app builder |
-| 3️⃣ | **Agentic RAG, Semantic Cache & KGs** | Retrieval as a tool the agent chooses | A RAG-vs-KG eval app + a cited video-moment RAG |
-| 4️⃣ | **Evaluation & Guardrails** | Ship with proof, not hope | An eval + guardrail harness |
-| 5️⃣ | **Multi-Agent Systems (MCP · A2A · ADK)** | When many agents beat one | A coordinated multi-agent system |
-| 6️⃣ | **Voice Agents** | One agent, two ways to make it talk | A real-time voice agent, benchmarked cascade vs. speech-to-speech |
-
----
-
-## How to Use This Repo
-
-- Content is organized **module by module** under `modules/`, aligned with the live sessions and project milestones.
-- **Google Colab Pro** is the preferred environment for the notebooks. You can also **clone locally** and run them in Jupyter or your IDE.
-- Most notebooks include their own dependencies via `!pip install`; where a module needs more, a `requirements.txt` sits alongside it.
-
-### Learn with Claude (AI tutor)
-
-This repo is also set up to be **read and used with [Claude](https://claude.com/claude-code)** as a personal tutor. Drop the folder into Claude Code (or upload it to Claude.ai) and Claude reads `CLAUDE.md` to act as a patient, interactive guide through the course — teaching one concept at a time, checking your understanding, and tracking your progress in `progress/learner-progress.md`.
-
-**Get started:** open the folder in Claude Code and type `/start`, or paste *"Read CLAUDE.md and run the `/start` onboarding"* into Claude.ai. Claude will greet you, ask how you like to learn, and begin Module 1.
-
-**Slash commands**
-
-- `/start` — onboard: pick a learning style and begin Module 1 (or the next one)
-- `/progress` — see where you are, what's next, and any flagged weak spots
-
-**Skills Claude auto-invokes** (in `.claude/skills/`) — just ask in plain language:
-
-| Skill | What it does | Try saying |
-|-------|--------------|------------|
-| `teach-module` | Runs an interactive lesson for a module, one concept at a time | *"Teach me module 3"* |
-| `quiz-me` | Quizzes you and tracks weak spots (never reveals answers first) | *"Quiz me on RAG"* |
-| `explain-eli5` | Re-explains a concept as simply as possible, with analogies | *"Explain isolated context like I'm five"* |
-| `build-along` | Guides you through a hands-on exercise step by step | *"Let's do the build-along for module 1"* |
-| `warmup` | A ~15-min pre-class refresher: recaps the last module, previews the next | *"I have class soon — warm me up for module 2"* |
-
-### Clone locally (optional)
+The complete agent, tool, RAG, routing, evaluation, and scale paths run without network access or paid requests.
 
 ```bash
-git clone https://github.com/hamzafarooq/multi-agent-course.git
-cd multi-agent-course
+cd FDE/Assignment_2_voice_agent/pipeline
+python3 smoke_test.py
+python3 -m unittest -v test_features.py
+PROVIDER=mock python3 voice_loop.py --text
+```
+
+Try these turns:
+
+```text
+What is the weather?
+What is the cancellation policy?
+I need a room from August 12 to August 14 for two guests.
+Please speak Spanish.
+¿Cuál es la política de mascotas?
+Connect me to the front desk.
+```
+
+## OpenAI Setup
+
+```bash
+cd FDE/Assignment_2_voice_agent/pipeline
 python3 -m venv .venv
 source .venv/bin/activate
-```
-
-### Clone via Claude Code chat
-
-You can clone this repo directly from the Claude Code chat interface without leaving your conversation:
-
-1. Open [Claude Code](https://claude.ai/code) in your browser (or launch `claude` in your terminal)
-2. In the chat, type:
-   ```
-   Clone https://github.com/hamzafarooq/multi-agent-course.git and open it
-   ```
-3. Claude will clone the repo into a directory of your choice, set up the project, and open it — ready for you to start learning.
-
-From there, type `/start` to begin the AI-guided onboarding.
-
-### Recommended resource
-
-To go deeper on building LLM applications, see the book
-[**Build LLM Applications from Scratch**](https://www.manning.com/books/build-llm-applications-from-scratch).
-
----
-
-## Course Curriculum
-
-> **The Agentic Systems Roadmap: From Efficiency to Action** — six modules across ~6 weeks, one 2-hour live session each. Every week ends with a working artifact you built yourself.
-
-### Module 1 — The Agent Loop, ReAct & the Harness
-
-Demystify what an agent actually is: the perceive → reason → act loop, the **ReAct** pattern, and what a production **harness** adds on top of a 50-line loop. Build a ReAct agent from scratch, no framework.
-
-**Key topics:** the agent loop · ReAct (Reasoning + Acting) · agent vs. workflow vs. chatbot · debugging via the trace · agent frameworks (smolagents)
-
----
-
-### Module 2 — Skills, Subagents & Multi-Agent Orchestration
-
-Go from *one* agent doing one thing well to a *coordinated system* of agents. Learn why isolated context windows are the whole point, the orchestrator + subagents pattern, and how to define your own subagents — then watch the pattern run end to end in **Sprint Zero**.
-
-**Key topics:** agents vs. subagents · isolated context windows · the orchestrator pattern (sequential vs. parallel) · defining subagents in `.claude/agents/` · specialization & the shared-spec coordination layer · multi-agent failure modes · the Sprint Zero capstone
-
-**📦 Featured project: [Sprint Zero](#sprint-zero--a-multi-agent-product-team-in-your-terminal)** — the module's capstone: a multi-agent system that turns a product URL and three answers into six spec docs and a working full-stack app.
-
-
----
-
-### Module 3 — Agentic RAG, Semantic Cache & Knowledge Graphs
-
-Treat retrieval as a tool the agent *decides* to use — not a static bolt-on. Add a semantic cache for real latency/cost wins, and contrast vector RAG with Knowledge Graphs for structured reasoning.
-
-**Key topics:** naive RAG vs. agentic RAG · query routing & multi-hop retrieval · query decomposition + HyDE · hybrid retrieval & RRF fusion · cross-encoder re-ranking · semantic caching · Knowledge Graphs & GraphRAG · text-to-Cypher · RAG vs. KG evaluation · moment-level video RAG
-
-> 🗺️ **New here?** [Module 3 at a glance](modules/Module_3_Agentic_RAG/README.md#module-3-at-a-glance) — a one-screen map of the four pieces below.
-
-![Module 3 mind map — Agentic RAG, Semantic Cache, Knowledge Graphs, and Moment RAG](modules/Module_3_Agentic_RAG/module-3-mindmap.png)
-
-**📊 Featured project: RAG vs. Knowledge Graph comparison framework** — a Streamlit app that objectively compares RAG and KG approaches with LLM-based evaluation and interactive graph visualizations.
-[View documentation →](modules/Module_3_Agentic_RAG/Knowledge_Graphs/README.md)
-
-```bash
-cd modules/Module_3_Agentic_RAG/Knowledge_Graphs
-python setup.py      # one-time setup
-streamlit run app.py
-```
-
-**🎬 Featured project: Moment RAG** — agentic RAG on *video*. Ask a complex question and get a streamed, **cited** answer where every citation pops up the source YouTube episode at the **exact moment**, with a synced transcript. Pipeline: self-query → decompose → hybrid retrieve (dense + BM25 + HyDE questions, RRF) → cross-encoder re-rank → cited synthesis.
-[View documentation →](modules/Module_3_Agentic_RAG/Moment_RAG/README.md)
-
-```bash
-cd modules/Module_3_Agentic_RAG/Moment_RAG
 pip install -r requirements.txt
-cp .env.example .env      # add OPENAI_API_KEY
-uvicorn app:app --reload  # open http://localhost:8000
+cp config.example.env .env
 ```
 
----
+Set the following values in `pipeline/.env`:
 
-### Module 4 — Evaluation & Guardrails
+```env
+PROVIDER=openai
+OPENAI_API_KEY=your_key_here
+TTS_BACKEND=system
+TELEMETRY_JSONL=../logs/voice-events.jsonl
+```
 
-Close the loop: ship with measurable quality and safety, not hope.
-
-**Key topics:** input/output guardrails · prompt-injection & jailbreak defense (Llama Guard) · trajectory eval vs. outcome eval · LLM-as-judge (and how to validate the judge) · golden task sets
-
-> 🗺️ **New here?** [Module 4 overview](modules/Module_4_AI_Evaluation/README.md) — the five-layer eval pyramid, from "is the answer good?" up to "can we trust the system end-to-end?"
-
-**📏 Featured notebook: AI Evaluation Metrics** — a plain-English tour of the metrics used across every layer of an AI system: LLM quality & reasoning, RAG retrieval & generation, and full agent/multi-agent evaluation. No API keys, no model downloads — just the standard library doing the arithmetic so you can watch the numbers move.
-[View documentation →](modules/Module_4_AI_Evaluation/README.md) · [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/hamzafarooq/multi-agent-course/blob/main/modules/Module_4_AI_Evaluation/AI_Eval_Metrics.ipynb)
-
----
-
-### Module 5 — Multi-Agent Systems (MCP · A2A · ADK)
-
-When many agents beat one — and the more common case where they don't. Build a coordinated multi-agent system and learn the protocol layer underneath the marketing.
-
-**Key topics:** one agent vs. many · topologies (orchestrator-worker, hierarchical, swarm, handoff) · **MCP** (tools), **A2A** (agent-to-agent), **ADK** (Google's framework) · shared memory & message passing
-
-> 🗺️ **New here?** [Module 5 overview](modules/Module_5_Multi_Agents/README.md) — how MCP, A2A, and ADK compose into one running system.
-
-**🛎️ Featured project: Advanced Customer Support Agent** — a CLI support agent that ties all three protocols together: **ADK** defines the agents (Gemini 2.5 Flash), **A2A** runs the Security Judge and PII Masker as independent microservices, and **MCP Toolbox** exposes a PostgreSQL backend as tools. Wrapped in a multi-layer security pipeline (input sanitization → A2A security judge → DLP-based PII masking).
-[View documentation →](modules/Module_5_Multi_Agents/advance-customer-support-agent-feature-A2A-MCP-ADK/README.md)
+Verify the live model before adding audio:
 
 ```bash
-cd modules/Module_5_Multi_Agents/advance-customer-support-agent-feature-A2A-MCP-ADK
+python voice_loop.py --text
+```
+
+Run the local microphone cascade:
+
+```bash
+python voice_loop.py
+```
+
+The terminal reports capture, STT, routing, retrieval, LLM, tool, TTS, and total turn timing. `TTS_BACKEND=system` uses the macOS voice and avoids cloud TTS cost during rehearsal.
+
+Set `TTS_BACKEND=provider` to use the selected provider's configured TTS model and voice. Provider TTS incurs audio-generation cost.
+
+## Groq Setup
+
+The provider adapter uses the same tool-calling interface for OpenAI and Groq.
+
+```env
+PROVIDER=groq
+GROQ_API_KEY=your_key_here
+TTS_BACKEND=system
+```
+
+The commands remain the same.
+
+## Local LiveKit Demo
+
+Install the room demo once:
+
+```bash
+cd FDE/Assignment_2_voice_agent/livekit
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env      # add Google Cloud + Mem0 keys
-python -m cs_agent.a2a.run_servers   # start the A2A servers, then run the CLI
+npm install
 ```
 
----
+Use three terminals.
 
-### Module 6 — Voice Agents
+Terminal 1 starts the self-contained LiveKit development server:
 
-Ship an agent that talks — and survives real conversation — then benchmark two different architectures for doing it head-to-head.
-
-**Key topics:** the voice stack (STT → LLM → TTS) · turn-taking & end-of-turn detection · latency budgeting, streaming & barge-in · tool calling inside a voice loop · provider landscape (Deepgram, ElevenLabs, OpenAI Realtime, Vapi, Retell) · cascade vs. speech-to-speech architectures · benchmarking voice agents on cost, latency, and capability
-
-
----
-
-## What You'll Build
-
-This course goes beyond theory. Across the six modules you'll ship real, portfolio-ready artifacts:
-
-| 🛠️ Artifact | What it proves |
-|------------|----------------|
-| 🔁 **ReAct agent** built from scratch | You understand the loop, not just a framework |
-| 🤝 **Sprint Zero** — multi-agent app builder | You can orchestrate specialized subagents to a shared spec |
-| 🔎 **Agentic RAG pipeline** with semantic cache | Retrieval as a decision, with real latency/cost wins |
-| 🕸️ **Knowledge Graph app** + RAG-vs-KG eval | You can pick the right memory for the job and measure it |
-| 🎬 **Moment RAG** — cited answers over video | Retrieval resolves to the exact moment you cite, not just a doc |
-| 🎙️ **Voice agent** that handles real conversation | You can budget latency and survive barge-in |
-| ✅ **Evaluation + guardrail harness** | You ship with measurable quality and safety |
-
-Each module ends with a working artifact you built yourself.
-
----
-
-## Full Stack Projects
-
-End-to-end, build-along projects that tie the course concepts together.
-
-### 🚀 Sprint Zero — a multi-agent product team in your terminal
-
-> **Point it at a product. Answer three questions. Get back a complete spec set and a working app.**
-
-A Claude Code kit that runs a full sub-agent product team on your laptop — scoping, research, six spec docs, parallel engineering, and QA, all driven from one command. The Module 2 capstone, and a working reference for the orchestrator + subagents pattern.
-
-```
-/sprint-zero https://twenty.com  →  📋 specs  →  🤝 parallel build  →  ✅ QA  →  🟢 running app
+```bash
+cd FDE/Assignment_2_voice_agent/livekit
+./start_local_server.sh
 ```
 
-- ⚙️ **Configurable** — `web-app` / `api-service` / `cli-tool` · `node-react` / `nextjs` / `python-react`
-- 🔌 **Zero-setup default** — SQLite + local auth, runs straight after clone (no account, no keys)
-- ⏱️ **~10–20 min** end-to-end for an MVP
+Terminal 2 creates the room and starts the browser application:
 
-[![Open Sprint Zero](https://img.shields.io/badge/▶%20Open-Sprint%20Zero-6E40C9?style=for-the-badge)](Full_Stack_Projects/Sprint_Zero)
+```bash
+cd FDE/Assignment_2_voice_agent/livekit
+source .venv/bin/activate
+python create_room.py
+python talk_server.py
+```
 
-Built by [Yousuf Alvi](https://github.com/yousuf-alvi) and [Hamza Farooq](https://www.linkedin.com/in/hamzafarooq/).
+Open `http://localhost:5173`, click **Start call**, allow microphone access, and speak naturally. The browser automatically joins the caller and Aurora participants, detects caller turns, displays grounding sources, and shows stage telemetry.
 
----
+The LiveKit bridge honors `TTS_BACKEND` from `pipeline/.env`. With `provider`, the server synthesizes WAV audio using `TTS_MODEL` and `TTS_VOICE`, and the UI labels the response with the selected voice. With `system` or `mock`, the browser uses its installed speech voice.
 
-## Forward Deployed Engineer (FDE) Track
+The browser exposes two workshop controls:
 
-> **A separate, project-only track: ship complete full-stack AI products, end to end.**
+- **Endpoint silence** changes how long a pause must be before a turn is committed.
+- **Speech sensitivity** changes the adaptive speech threshold relative to the measured noise floor.
 
-Where the six modules above build your understanding concept by concept, the **[FDE track](FDE/README.md)** is pure shipping. "Forward Deployed Engineer" is the new moat in AI — the engineer who takes a capability all the way to a shipped product, from the code in the browser down to the model running on their own servers. Each assignment is a real product built in an environment you *don't* control: you build the frontend, the agent logic, the model serving, the caching, and the deployment, conform to a fixed API contract, and prove it works.
+Speak while Aurora is playing a response to demonstrate playback barge-in. The browser cancels speech output, records the interruption, and opens the next caller turn.
 
-Every FDE project is graded against a **measurable scoring rubric** plus a short video demo — not vibes. Each assignment ships an `eval/` folder with a `rubric.json` and an `eval.py` that scores your running project, captures evidence, and produces a **Product Evaluation** report (`PRODUCT_EVAL.md`) you submit with a 60–90s demo.
+### LiveKit Boundary
 
-| # | Assignment | You build | Core skills |
-|---|-----------|-----------|-------------|
-| 1 | [**Live Translate**](FDE/Assignment_1_Live_Translate/) | A two-service backend (Node gateway + Python AI service) behind a provided browser widget that live-translates any page EN → Mexican Spanish | LLM calls, two-tier caching, structured logging + tracing, service separation, SLA gate, Fly.io deploy |
-| … | _more coming_ | | |
+The caller and Aurora identities are real LiveKit room participants. The current workshop agent processes completed browser audio through `/voice-agent`, returns provider-generated WAV audio when enabled, and otherwise uses browser speech synthesis. It is not yet a room-native agent worker that subscribes to a LiveKit audio track and publishes a TTS track.
 
-[**Explore the FDE track →**](FDE/README.md) · [See a sample scorecard →](FDE/Assignment_1_Live_Translate/README.md#sample-scorecard)
+A production extension would add a LiveKit agent worker, persistent session storage, distributed cancellation, and SIP dispatch.
 
----
+## Grounding And Tools
 
-## About the Course
+Aurora uses different boundaries for different kinds of truth:
 
-**Agent Engineering Bootcamp: Developers Edition** · ⭐ 4.8/5 (107 reviews)
+| Information | Mechanism | Reason |
+|-------------|-----------|--------|
+| Policies, parking, pets, breakfast, accessibility | Local RAG | Read-oriented knowledge with source evidence |
+| Availability and room rates | Tool call | Dynamic operational truth |
+| Booking creation | Tool call | Auditable state mutation |
+| Language switching | `set_language` control tool | Validated session state and matching TTS locale |
+| Transfer and hangup | Control action | Runtime and telephony behavior |
 
-**Instructor:** [Hamza Farooq](https://www.linkedin.com/in/hamzafarooq/) — Founder · Ex-Google · Professor at UCLA & UMN
+The local retriever indexes Markdown sections with SQLite FTS5. It includes English and Spanish query expansion while keeping the source document unchanged.
 
-A hands-on, build-every-week bootcamp for engineers who already write Python and have touched LLM APIs. Six live 2-hour sessions; you leave with the **judgment** that separates engineers who ship agents from engineers who follow tutorials.
+Aurora uses hybrid tool routing. High-confidence policy and amenity phrases select `search_hotel_knowledge` in application code before the first model call. Other tool decisions remain automatic. This keeps retrieval reliable after interruptions or off-topic turns without routing a request such as `cancel my reservation` into policy search.
 
+## Telemetry
 
----
+Each turn carries a session ID, turn ID, trace ID, provider, model, language, stage timings, tool arguments, tool results, sources, action, and ordered runtime events.
 
-*Created by [boring-bot](https://maven.com/boring-bot). Building the future of AI, one agent at a time.*
+Raw transcript and response content are omitted by default, and sensitive tool fields such as guest name and contact details are redacted. Set `TELEMETRY_INCLUDE_CONTENT=true` only for controlled local debugging with non-sensitive data.
+
+The LiveKit server writes JSONL traces to:
+
+```text
+logs/voice-events.jsonl
+```
+
+The path is ignored by Git. Set `TELEMETRY_JSONL` to change or disable the destination.
+
+Important production measures include endpoint delay, STT latency, LLM time to first token, tool latency, TTS time to first audio, end-of-turn to first audio, interruption latency, task completion, critical entity accuracy, transfer rate, and cost per successful outcome.
+
+## Evaluation And Red Teaming
+
+Run all deterministic scenarios:
+
+```bash
+cd FDE/Assignment_2_voice_agent/evals
+python3 run_evals.py --suite all
+```
+
+Run one suite with conversation details:
+
+```bash
+python3 run_evals.py --suite core --verbose
+python3 run_evals.py --suite red-team --verbose
+```
+
+The suites verify expected tools, actions, languages, sources, allowed text, and forbidden text. The red-team set covers prompt injection, policy fabrication, privacy, structured tool input, and guardrails after a language switch.
+
+## Scale Check
+
+The calculator converts product assumptions into peak concurrency and service demand without calling a provider:
+
+```bash
+cd FDE/Assignment_2_voice_agent/pipeline
+python3 scale_check.py --dau 1000000
+```
+
+Default assumptions are 0.25 calls per DAU, four minutes per call, three turns per minute, an 8x peak factor, 40 sessions per worker, and 30 percent headroom. Change every assumption before using the result as a capacity plan.
+
+Example with a blended variable cost:
+
+```bash
+python3 scale_check.py --dau 1000000 --cost-per-minute 0.035
+```
+
+## Telephony Mapping
+
+```text
+PSTN caller -> carrier -> SIP trunk -> SBC or SIP edge -> LiveKit room -> agent -> tools
+```
+
+Run the local signaling demonstrations:
+
+```bash
+cd FDE/Assignment_2_voice_agent/mocks
+python3 demo_call.py
+python3 demo_call.py --transfer
+python3 ivr_menu_mock.py
+```
+
+The mock maps booking completion to SIP BYE and human escalation to SIP REFER. A real phone deployment also requires a carrier or telephony provider, an internet-reachable SIP edge, codec and media negotiation, security policy, dispatch rules, and a room-native agent worker.
+
+## Safety And Cost
+
+- Keep `.env`, virtual environments, telemetry logs, and private workshop materials out of Git.
+- Do not enable raw telemetry content for real customer conversations without an approved privacy and retention policy.
+- Use mock mode for rehearsal, evaluation, and scale exercises.
+- Use system TTS while developing to avoid cloud TTS charges.
+- Treat booking tools as mock systems until authentication, validation, idempotency, persistence, and audit controls are added.
